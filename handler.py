@@ -125,8 +125,6 @@ def synthesize(payload: dict) -> dict:
             temp.close()
             reference_path = temp.name
 
-        # Chatterbox mutates its voice conditionals when a prompt voice is used,
-        # so serialize generation within one worker to prevent voices mixing.
         with _MODEL_LOCK:
             wav = MODEL.generate(
                 text=text,
@@ -174,4 +172,5 @@ def handler(job):
         }
 
 
-runpod.serverless.start({"handler": handler})
+if __name__ == "__main__":
+    runpod.serverless.start({"handler": handler})
