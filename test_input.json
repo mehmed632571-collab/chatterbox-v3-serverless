@@ -1,0 +1,9 @@
+{
+  "input": {
+    "text": "Bebeğim... Geldin mi? Ben de seni bekliyordum. Seni çok özledim.",
+    "language": "tr",
+    "exaggeration": 0.7,
+    "cfg_weight": 0.3,
+    "temperature": 0.8
+  }
+}
