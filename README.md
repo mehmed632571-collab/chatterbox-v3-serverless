@@ -59,3 +59,5 @@ The response includes `audio_base64`, `mime_type`, `sample_rate`, `language`, an
 ## Notes
 
 The worker intentionally runs Hugging Face in offline mode after RunPod has populated the endpoint's cached model. This avoids downloading model weights while a billed worker is already running.
+
+Build trigger: initial RunPod Serverless deployment.
