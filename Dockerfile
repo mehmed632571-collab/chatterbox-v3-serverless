@@ -13,11 +13,12 @@ WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
 
-# Install the inference/runtime dependencies without Gradio. Gradio is only the
-# optional web UI for Chatterbox and conflicts with the current RunPod SDK over
-# tomlkit. Serverless uses handler.py, so Gradio is not needed here.
+# Install inference/runtime dependencies without Gradio. Then install the
+# official ResembleAI source revision that contains Multilingual V3 support
+# for ChatterboxMultilingualTTS.from_local(..., t3_model="v3").
 RUN pip install --no-cache-dir -r /app/requirements.txt && \
-    pip install --no-cache-dir --no-deps chatterbox-tts==0.1.7
+    pip install --no-cache-dir --no-deps \
+      "git+https://github.com/resemble-ai/chatterbox.git@5de7a54aa4e5e2baadb0182dde554908b48b85c2"
 
 COPY handler.py /app/handler.py
 
