@@ -13,12 +13,32 @@ WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
 
-# Install inference/runtime dependencies without Gradio. Then install the
-# official ResembleAI source revision that contains Multilingual V3 support
-# for ChatterboxMultilingualTTS.from_local(..., t3_model="v3").
+# Install inference/runtime dependencies without Gradio, then pin the official
+# ResembleAI source revision that contains Multilingual V3 support.
 RUN pip install --no-cache-dir -r /app/requirements.txt && \
     pip install --no-cache-dir --no-deps \
       "git+https://github.com/resemble-ai/chatterbox.git@5de7a54aa4e5e2baadb0182dde554908b48b85c2"
+
+# Bake only the files required by Chatterbox Multilingual V3 into the image.
+# This avoids depending on RunPod's cached-model mount at worker startup and
+# prevents billed workers from downloading multi-GB model weights at runtime.
+RUN python - <<'PY'
+from huggingface_hub import snapshot_download
+
+snapshot_download(
+    repo_id="ResembleAI/chatterbox",
+    revision="main",
+    local_dir="/models/chatterbox",
+    allow_patterns=[
+        "ve.pt",
+        "t3_mtl23ls_v3.safetensors",
+        "s3gen.pt",
+        "grapheme_mtl_merged_expanded_v1.json",
+        "conds.pt",
+        "Cangjie5_TC.json",
+    ],
+)
+PY
 
 COPY handler.py /app/handler.py
 

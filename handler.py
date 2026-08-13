@@ -11,41 +11,69 @@ import torch
 from chatterbox.mtl_tts import ChatterboxMultilingualTTS
 
 MODEL_ID = os.environ.get("MODEL_NAME", "ResembleAI/chatterbox")
-HF_CACHE_ROOT = "/runpod-volume/huggingface-cache/hub"
+BAKED_MODEL_PATH = Path(os.environ.get("CHATTERBOX_MODEL_PATH", "/models/chatterbox"))
+HF_CACHE_ROOT = Path("/runpod-volume/huggingface-cache/hub")
 MAX_TEXT_CHARS = int(os.environ.get("MAX_TEXT_CHARS", "600"))
 MAX_REFERENCE_BYTES = int(os.environ.get("MAX_REFERENCE_BYTES", str(8 * 1024 * 1024)))
 
-# The endpoint is configured with RunPod model caching, so inference should never
-# download model weights while a billed worker is running.
+# Production workers never download model weights at runtime.
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 _MODEL_LOCK = threading.Lock()
+_REQUIRED_MODEL_FILES = {
+    "ve.pt",
+    "t3_mtl23ls_v3.safetensors",
+    "s3gen.pt",
+    "grapheme_mtl_merged_expanded_v1.json",
+    "conds.pt",
+}
 
 
-def resolve_snapshot_path(model_id: str) -> str:
+def _is_complete_model_dir(path: Path) -> bool:
+    return path.is_dir() and all((path / name).is_file() for name in _REQUIRED_MODEL_FILES)
+
+
+def _resolve_cached_snapshot(model_id: str) -> Path | None:
     if "/" not in model_id:
-        raise ValueError(f"MODEL_NAME must be in org/name format, got: {model_id}")
+        return None
 
     org, name = model_id.split("/", 1)
-    model_root = Path(HF_CACHE_ROOT) / f"models--{org}--{name}"
+    model_root = HF_CACHE_ROOT / f"models--{org}--{name}"
     refs_main = model_root / "refs" / "main"
     snapshots_dir = model_root / "snapshots"
 
     if refs_main.is_file():
         snapshot_hash = refs_main.read_text(encoding="utf-8").strip()
         candidate = snapshots_dir / snapshot_hash
-        if candidate.is_dir():
-            return str(candidate)
+        if _is_complete_model_dir(candidate):
+            return candidate
 
     if snapshots_dir.is_dir():
-        versions = sorted(p for p in snapshots_dir.iterdir() if p.is_dir())
-        if versions:
-            return str(versions[0])
+        for candidate in sorted(p for p in snapshots_dir.iterdir() if p.is_dir()):
+            if _is_complete_model_dir(candidate):
+                return candidate
 
+    return None
+
+
+def resolve_model_path() -> Path:
+    # Primary path: model baked into the Docker image at build time.
+    if _is_complete_model_dir(BAKED_MODEL_PATH):
+        return BAKED_MODEL_PATH
+
+    # Secondary path: keep compatibility with RunPod cached-model mounts if
+    # they are available on a future worker host.
+    cached = _resolve_cached_snapshot(MODEL_ID)
+    if cached is not None:
+        return cached
+
+    missing = sorted(
+        name for name in _REQUIRED_MODEL_FILES if not (BAKED_MODEL_PATH / name).is_file()
+    )
     raise RuntimeError(
-        f"RunPod cached model was not found for {model_id}. "
-        "Set the endpoint Model field to ResembleAI/chatterbox."
+        "Chatterbox Multilingual V3 model files are unavailable. "
+        f"Baked path: {BAKED_MODEL_PATH}; missing: {missing}"
     )
 
 
@@ -53,10 +81,10 @@ def load_model() -> ChatterboxMultilingualTTS:
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU is required for this worker.")
 
-    snapshot = resolve_snapshot_path(MODEL_ID)
-    print(f"Loading Chatterbox Multilingual V3 from cached snapshot: {snapshot}")
+    model_path = resolve_model_path()
+    print(f"Loading Chatterbox Multilingual V3 from: {model_path}")
     model = ChatterboxMultilingualTTS.from_local(
-        snapshot,
+        str(model_path),
         device="cuda",
         t3_model="v3",
     )
